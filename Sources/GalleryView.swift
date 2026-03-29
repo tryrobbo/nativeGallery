@@ -5,6 +5,7 @@ import AVKit
 struct GalleryView: View {
     @ObservedObject var model: GalleryModel
     @AppStorage("nativeThumbSize") private var thumbSize: Double = 200
+    @State private var sizeAtGestureStart: Double? = nil
 
     var body: some View {
         ScrollView {
@@ -21,6 +22,17 @@ struct GalleryView: View {
             .padding(.horizontal)
             .padding(.bottom)
         }
+        .gesture(
+            MagnificationGesture()
+                .onChanged { value in
+                    let base = sizeAtGestureStart ?? thumbSize
+                    if sizeAtGestureStart == nil { sizeAtGestureStart = thumbSize }
+                    thumbSize = min(max(base * value, 100), 500)
+                }
+                .onEnded { _ in
+                    sizeAtGestureStart = nil
+                }
+        )
     }
 }
 
@@ -81,8 +93,9 @@ struct MediaCell: View {
     }
     
     func generateThumbnail() async {
-        let reqSize = CGSize(width: size * 2, height: size * 2) 
-        let request = QLThumbnailGenerator.Request(fileAt: item.url, size: reqSize, scale: 2.0, representationTypes: .thumbnail)
+        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let reqSize = CGSize(width: size, height: size)
+        let request = QLThumbnailGenerator.Request(fileAt: item.url, size: reqSize, scale: scale, representationTypes: .thumbnail)
         do {
             let result = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
             await MainActor.run {
@@ -120,6 +133,13 @@ class HoverVideoView: NSView {
         playerLayer?.frame = bounds
     }
 
+    func stop() {
+        player?.pause()
+        playerLayer?.removeFromSuperlayer()
+        player = nil
+        playerLayer = nil
+    }
+
     // Don't consume scroll events — let the ScrollView handle them.
     override func scrollWheel(with event: NSEvent) {
         nextResponder?.scrollWheel(with: event)
@@ -134,13 +154,18 @@ struct NativeHoverVideoPlayer: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: HoverVideoView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: HoverVideoView, coordinator: ()) {
+        nsView.stop()
+    }
 }
 
 struct LightBoxView: View {
     let item: MediaItem
     @ObservedObject var model: GalleryModel
     @State private var player: AVPlayer?
-    
+    @State private var lightboxImage: NSImage?
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             // Semi-transparent overlay backing
@@ -150,17 +175,17 @@ struct LightBoxView: View {
                         model.selectedItem = nil
                     }
                 }
-            
+
             // Media Content
             if item.type == .photo {
-                if let nsImage = NSImage(contentsOf: item.url) {
+                if let nsImage = lightboxImage {
                     Image(nsImage: nsImage)
                         .resizable()
                         .scaledToFit()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    Text("Failed to load image.")
-                        .foregroundColor(.white)
+                    ProgressView()
+                        .tint(.white)
                 }
             } else if item.type == .video {
                 if let p = player {
@@ -214,6 +239,14 @@ struct LightBoxView: View {
             } else {
                 self.player = nil
             }
+        }
+        .task(id: item) {
+            guard item.type == .photo else { return }
+            lightboxImage = nil
+            let url = item.url
+            lightboxImage = await Task.detached(priority: .userInitiated) {
+                NSImage(contentsOf: url)
+            }.value
         }
         .onAppear {
             if item.type == .video {

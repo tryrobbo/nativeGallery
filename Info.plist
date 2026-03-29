@@ -6,6 +6,8 @@
 	<string>NativeGallery</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.thomas.NativeGallery</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleName</key>
 	<string>NativeGallery</string>
 	<key>CFBundlePackageType</key>

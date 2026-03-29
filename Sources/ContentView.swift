@@ -3,6 +3,7 @@ import AppKit
 
 struct ContentView: View {
     @StateObject private var model = GalleryModel()
+    @AppStorage("nativeThumbSize") private var thumbSize: Double = 200
 
     var body: some View {
         NavigationSplitView {
@@ -46,6 +47,11 @@ struct ContentView: View {
             // Hosts the lightbox in a borderless NSPanel child window so it covers
             // the full window including the macOS toolbar/titlebar.
             LightboxPanelHost(selectedItem: model.selectedItem, model: model)
+
+            Button(action: { thumbSize = min(thumbSize + 25, 500) }) { EmptyView() }
+                .keyboardShortcut("=", modifiers: .command)
+            Button(action: { thumbSize = max(thumbSize - 25, 100) }) { EmptyView() }
+                .keyboardShortcut("-", modifiers: .command)
 
             if model.selectedItem != nil {
                 Button(action: { model.selectedItem = nil }) { EmptyView() }.keyboardShortcut(.escape, modifiers: [])
@@ -170,7 +176,6 @@ struct RecursiveFolderView: View {
 
 struct SidebarView: View {
     @ObservedObject var model: GalleryModel
-    @AppStorage("nativeThumbSize") private var thumbSize: Double = 200
 
     var body: some View {
         List {
@@ -220,8 +225,6 @@ struct SidebarView: View {
                         .foregroundColor(.secondary)
                     Spacer()
                 }
-                Slider(value: $thumbSize, in: 100...500)
-                    .labelsHidden()
             }
             .padding(.horizontal)
             .padding(.bottom, 10)

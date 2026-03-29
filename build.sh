@@ -11,8 +11,9 @@ RESOURCES_DIR="${APP_BUNDLE}/Contents/Resources"
 mkdir -p "${MACOS_DIR}"
 mkdir -p "${RESOURCES_DIR}"
 
-# Copy Info.plist
+# Copy Info.plist and icon
 cp Info.plist "${APP_BUNDLE}/Contents/"
+cp AppIcon.icns "${RESOURCES_DIR}/"
 
 # Compile Swift files
 echo "Compiling swift files..."

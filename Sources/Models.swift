@@ -63,31 +63,35 @@ class GalleryModel: ObservableObject {
 
     @Published var activePlayer: AVPlayer? = nil
     @Published var expandedFolders: [String: Bool] = [:]
+    @Published private(set) var filteredItems: [MediaItem] = []
 
     private var eventStream: FSEventStreamRef?
     private var scanGeneration = 0
+    private let fsEventQueue = DispatchQueue(label: "com.nativegallery.fsevents", qos: .utility)
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        Publishers.CombineLatest4($mediaItems, $currentFilter, $searchQuery, $selectedFolderID)
+            .map { items, filter, query, folderID -> [MediaItem] in
+                var result = items
+                if filter == .photo {
+                    result = result.filter { $0.type == .photo }
+                } else if filter == .video {
+                    result = result.filter { $0.type == .video }
+                }
+                if let sf = folderID {
+                    result = result.filter { $0.url.deletingLastPathComponent().path == sf }
+                }
+                if !query.isEmpty {
+                    result = result.filter { $0.name.localizedCaseInsensitiveContains(query) }
+                }
+                return result.sorted { $0.date > $1.date }
+            }
+            .assign(to: &$filteredItems)
+    }
 
     deinit {
         stopWatching()
-    }
-
-    var filteredItems: [MediaItem] {
-        var items = mediaItems
-        if currentFilter == .photo {
-            items = items.filter { $0.type == .photo }
-        } else if currentFilter == .video {
-            items = items.filter { $0.type == .video }
-        }
-
-        if let sf = selectedFolderID {
-            items = items.filter { $0.url.deletingLastPathComponent().path == sf }
-        }
-
-        if !searchQuery.isEmpty {
-            items = items.filter { $0.name.localizedCaseInsensitiveContains(searchQuery) }
-        }
-
-        return items.sorted(by: { $0.date > $1.date })
     }
 
     func selectRootFolder() {
@@ -137,7 +141,7 @@ class GalleryModel: ObservableObject {
         )
 
         if let stream = eventStream {
-            FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
+            FSEventStreamSetDispatchQueue(stream, fsEventQueue)
             FSEventStreamStart(stream)
         }
     }
