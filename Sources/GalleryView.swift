@@ -18,7 +18,8 @@ struct GalleryView: View {
                         }
                 }
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.bottom)
         }
     }
 }
