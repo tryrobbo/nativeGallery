@@ -22,6 +22,7 @@ swiftc \
   -parse-as-library \
   -framework AVKit \
   -framework AVFoundation \
+  -framework CoreServices \
   -o "${MACOS_DIR}/${APP_NAME}" \
   Sources/*.swift
 
