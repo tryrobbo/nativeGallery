@@ -65,6 +65,7 @@ class GalleryModel: ObservableObject {
     @Published var expandedFolders: [String: Bool] = [:]
 
     private var eventStream: FSEventStreamRef?
+    private var scanGeneration = 0
 
     deinit {
         stopWatching()
@@ -157,6 +158,10 @@ class GalleryModel: ObservableObject {
             self.mediaItems = []
         }
 
+        // Increment generation so any in-flight scan knows it's been superseded.
+        scanGeneration += 1
+        let generation = scanGeneration
+
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
             guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
@@ -173,6 +178,9 @@ class GalleryModel: ObservableObject {
             }
 
             DispatchQueue.main.async {
+                // Discard results if a newer scan has already started.
+                guard self.scanGeneration == generation else { return }
+
                 // Dismiss lightbox if the open item was deleted.
                 if let current = self.selectedItem,
                    !newItems.contains(where: { $0.url == current.url }) {
