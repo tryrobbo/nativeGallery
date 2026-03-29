@@ -96,7 +96,31 @@ struct MediaCell: View {
     }
 }
 
-class PassthroughScrollPlayerView: AVPlayerView {
+class HoverVideoView: NSView {
+    private var player: AVPlayer?
+    private var playerLayer: AVPlayerLayer?
+
+    init(url: URL) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        let p = AVPlayer(url: url)
+        p.isMuted = true
+        p.play()
+        player = p
+        let pl = AVPlayerLayer(player: p)
+        pl.videoGravity = .resizeAspectFill
+        layer?.addSublayer(pl)
+        playerLayer = pl
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        playerLayer?.frame = bounds
+    }
+
+    // Don't consume scroll events — let the ScrollView handle them.
     override func scrollWheel(with event: NSEvent) {
         nextResponder?.scrollWheel(with: event)
     }
@@ -105,17 +129,11 @@ class PassthroughScrollPlayerView: AVPlayerView {
 struct NativeHoverVideoPlayer: NSViewRepresentable {
     let url: URL
 
-    func makeNSView(context: Context) -> PassthroughScrollPlayerView {
-        let view = PassthroughScrollPlayerView()
-        let player = AVPlayer(url: url)
-        player.isMuted = true
-        view.player = player
-        view.controlsStyle = .none
-        player.play()
-        return view
+    func makeNSView(context: Context) -> HoverVideoView {
+        HoverVideoView(url: url)
     }
 
-    func updateNSView(_ nsView: PassthroughScrollPlayerView, context: Context) {}
+    func updateNSView(_ nsView: HoverVideoView, context: Context) {}
 }
 
 struct LightBoxView: View {
