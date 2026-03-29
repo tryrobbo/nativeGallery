@@ -20,7 +20,6 @@ struct GalleryView: View {
             }
             .padding()
         }
-        .ignoresSafeArea(edges: .top)
     }
 }
 

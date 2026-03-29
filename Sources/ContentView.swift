@@ -35,6 +35,7 @@ struct ContentView: View {
                 GalleryView(model: model)
             }
         }
+        .toolbar(.hidden, for: .windowToolbar)
         .onAppear {
             DispatchQueue.main.async {
                 NSApp.mainWindow?.titleVisibility = .hidden
