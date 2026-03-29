@@ -98,7 +98,7 @@ struct MediaCell: View {
 
 class PassthroughScrollPlayerView: AVPlayerView {
     override func scrollWheel(with event: NSEvent) {
-        superview?.scrollWheel(with: event)
+        nextResponder?.scrollWheel(with: event)
     }
 }
 
