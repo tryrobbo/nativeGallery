@@ -96,11 +96,17 @@ struct MediaCell: View {
     }
 }
 
+class PassthroughScrollPlayerView: AVPlayerView {
+    override func scrollWheel(with event: NSEvent) {
+        superview?.scrollWheel(with: event)
+    }
+}
+
 struct NativeHoverVideoPlayer: NSViewRepresentable {
     let url: URL
-    
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
+
+    func makeNSView(context: Context) -> PassthroughScrollPlayerView {
+        let view = PassthroughScrollPlayerView()
         let player = AVPlayer(url: url)
         player.isMuted = true
         view.player = player
@@ -108,8 +114,8 @@ struct NativeHoverVideoPlayer: NSViewRepresentable {
         player.play()
         return view
     }
-    
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {}
+
+    func updateNSView(_ nsView: PassthroughScrollPlayerView, context: Context) {}
 }
 
 struct LightBoxView: View {
