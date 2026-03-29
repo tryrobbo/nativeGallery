@@ -65,6 +65,16 @@ class GalleryModel: ObservableObject {
     @Published var expandedFolders: [String: Bool] = [:]
     @Published private(set) var filteredItems: [MediaItem] = []
 
+    // Import State
+    @Published var isImportMode = false
+    @Published var importSourceURL: URL? = nil
+    @Published var importItems: [MediaItem] = []
+    @Published var selectedImportURIs = Set<URL>()
+    @Published var importDescription = ""
+    @Published var isImporting = false
+    @Published var importProgress: Double = 0
+    @Published var deleteSourceAfterImport = false
+
     private var eventStream: FSEventStreamRef?
     private var scanGeneration = 0
     private let fsEventQueue = DispatchQueue(label: "com.nativegallery.fsevents", qos: .utility)
@@ -88,6 +98,17 @@ class GalleryModel: ObservableObject {
                 return result.sorted { $0.date > $1.date }
             }
             .assign(to: &$filteredItems)
+
+        // Load stored root folder if it exists.
+        if let lastPath = UserDefaults.standard.string(forKey: "lastRootPath") {
+            let url = URL(fileURLWithPath: lastPath)
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                self.rootURL = url
+                startWatching(url: url)
+                scan(url: url, initialLoad: true)
+            }
+        }
     }
 
     deinit {
@@ -102,6 +123,7 @@ class GalleryModel: ObservableObject {
         panel.prompt = "Select Media Folder"
         if panel.runModal() == .OK, let url = panel.url {
             self.rootURL = url
+            UserDefaults.standard.set(url.path, forKey: "lastRootPath")
             startWatching(url: url)
             scan(url: url, initialLoad: true)
         }
@@ -288,5 +310,136 @@ class GalleryModel: ObservableObject {
         }
 
         selectedItem = items[newIndex]
+    }
+
+    // MARK: - Import Mode
+
+    func startImport() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select Source Folder"
+        if panel.runModal() == .OK, let url = panel.url {
+            self.importSourceURL = url
+            self.isImportMode = true
+            self.selectedImportURIs = []
+            self.importDescription = ""
+            scanImportSource(url: url)
+        }
+    }
+
+    private func scanImportSource(url: URL) {
+        self.isScanning = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fm = FileManager.default
+            guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
+                DispatchQueue.main.async { self.isScanning = false }
+                return
+            }
+
+            var items = [MediaItem]()
+            while let fileURL = enumerator.nextObject() as? URL {
+                let ext = fileURL.pathExtension.lowercased()
+                if ["jpg", "jpeg", "png", "heic", "gif", "mp4", "mov", "m4v"].contains(ext) {
+                    items.append(MediaItem(url: fileURL))
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.importItems = items.sorted { $0.date > $1.date }
+                self.isScanning = false
+                // Default to no selection for safety.
+                self.selectedImportURIs = []
+            }
+        }
+    }
+
+    func performImport() {
+        guard let destRoot = rootURL, !selectedImportURIs.isEmpty else { return }
+        
+        // 1. Calculate date prefix from earliest selected item
+        let selectedItems = importItems.filter { selectedImportURIs.contains($0.url) }
+        guard let earliestDate = selectedItems.map({ $0.date }).min() else { return }
+        
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM"
+        let datePrefix = df.string(from: earliestDate)
+        
+        let folderName = importDescription.isEmpty ? datePrefix : "\(datePrefix) \(importDescription)"
+        let targetDir = destRoot.appendingPathComponent(folderName)
+        
+        self.isImporting = true
+        self.importProgress = 0
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fm = FileManager.default
+            var completed = 0
+            let total = selectedItems.count
+            
+            for item in selectedItems {
+                let srcURL = item.url
+                var destURL = targetDir.appendingPathComponent(item.name)
+                var wasSuccessful = false
+                
+                do {
+                    // Check for existence
+                    if fm.fileExists(atPath: destURL.path) {
+                        // Compare SHA256
+                        let srcHash = ImportUtilities.sha256(at: srcURL)
+                        let destHash = ImportUtilities.sha256(at: destURL)
+                        
+                        if srcHash == destHash {
+                            // Truly identical, skip
+                            print("Skipping identical file: \(item.name)")
+                            wasSuccessful = true
+                        } else {
+                            // Same name, different content -> rename with suffix
+                            let base = destURL.deletingPathExtension().lastPathComponent
+                            let ext = destURL.pathExtension
+                            var counter = 1
+                            while fm.fileExists(atPath: destURL.path) {
+                                let newName = "\(base)_\(counter).\(ext)"
+                                destURL = targetDir.appendingPathComponent(newName)
+                                counter += 1
+                            }
+                            try ImportUtilities.copyItem(at: srcURL, to: destURL)
+                            wasSuccessful = true
+                        }
+                    } else {
+                        try ImportUtilities.copyItem(at: srcURL, to: destURL)
+                        wasSuccessful = true
+                    }
+                    
+                    if wasSuccessful && self.deleteSourceAfterImport {
+                        try fm.removeItem(at: srcURL)
+                    }
+                } catch {
+                    print("Error importing \(item.name): \(error)")
+                }
+                
+                completed += 1
+                DispatchQueue.main.async {
+                    self.importProgress = Double(completed) / Double(total)
+                }
+            }
+            
+            DispatchQueue.main.async {
+                self.isImporting = false
+                self.isImportMode = false
+                self.importItems = []
+                self.selectedImportURIs = []
+                // Rescan library to show new items
+                self.scan(url: destRoot, initialLoad: false)
+                // Switch to newly created directory
+                self.selectedFolderID = targetDir.path
+            }
+        }
+    }
+
+    func cancelImport() {
+        self.isImportMode = false
+        self.importItems = []
+        self.selectedImportURIs = []
     }
 }

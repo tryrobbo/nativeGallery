@@ -34,6 +34,7 @@ struct ContentView: View {
                 }
             } else {
                 GalleryView(model: model)
+                    .id(model.isImportMode ? "import" : "library")
             }
         }
         .toolbar(.hidden, for: .windowToolbar)
@@ -179,6 +180,16 @@ struct SidebarView: View {
 
     var body: some View {
         List {
+            Section {
+                Button(action: {
+                    model.startImport()
+                }) {
+                    Label("Import from Camera/Folder...", systemImage: "arrow.down.doc.fill")
+                }
+                .buttonStyle(.plain)
+                .controlSize(.large)
+            }
+
             Section(header: Text("Filters").font(.caption).foregroundColor(.secondary)) {
                 Picker("Type", selection: $model.currentFilter) {
                     ForEach(GalleryModel.FilterType.allCases) { filter in

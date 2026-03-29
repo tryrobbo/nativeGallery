@@ -2,25 +2,52 @@ import SwiftUI
 import QuickLookThumbnailing
 import AVKit
 
+struct MediaGroup: Identifiable {
+    let id: Date
+    let items: [MediaItem]
+}
+
 struct GalleryView: View {
     @ObservedObject var model: GalleryModel
     @AppStorage("nativeThumbSize") private var thumbSize: Double = 200
     @State private var sizeAtGestureStart: Double? = nil
 
+    private var groupedItems: [MediaGroup] {
+        let items = model.isImportMode ? model.importItems : model.filteredItems
+        let grouped = Dictionary(grouping: items) { item in
+            Calendar.current.startOfDay(for: item.date)
+        }
+        return grouped.map { MediaGroup(id: $0.key, items: $0.value) }
+            .sorted { $0.id > $1.id }
+    }
+
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: thumbSize))], spacing: 16) {
-                ForEach(model.filteredItems) { item in
-                    MediaCell(item: item, size: thumbSize)
-                        .onTapGesture {
-                            withAnimation {
-                                model.selectedItem = item
-                            }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: thumbSize))],
+                spacing: 16,
+                pinnedViews: [.sectionHeaders]
+            ) {
+                ForEach(groupedItems) { group in
+                    Section(header: DayHeader(model: model, date: group.id, items: group.items)) {
+                        ForEach(group.items) { item in
+                            MediaCell(item: item, size: thumbSize, model: model)
+                                .onTapGesture {
+                                    withAnimation {
+                                        model.selectedItem = item
+                                    }
+                                }
                         }
+                    }
                 }
             }
             .padding(.horizontal)
-            .padding(.bottom)
+            .padding(.bottom, model.isImportMode ? 80 : 20)
+        }
+        .safeAreaInset(edge: .bottom) {
+            if model.isImportMode {
+                ImportBar(model: model)
+            }
         }
         .gesture(
             MagnificationGesture()
@@ -39,6 +66,7 @@ struct GalleryView: View {
 struct MediaCell: View {
     let item: MediaItem
     let size: Double
+    @ObservedObject var model: GalleryModel
     @State private var thumbnail: NSImage?
     @State private var isFailed = false
     @State private var isHovering = false
@@ -46,11 +74,7 @@ struct MediaCell: View {
     var body: some View {
         VStack {
             ZStack {
-                if item.type == .video && isHovering {
-                    NativeHoverVideoPlayer(url: item.url)
-                        .frame(width: size, height: size)
-                        .cornerRadius(8)
-                } else if let thumb = thumbnail {
+                if let thumb = thumbnail {
                     Image(nsImage: thumb)
                         .resizable()
                         .scaledToFill()
@@ -71,11 +95,26 @@ struct MediaCell: View {
                         .overlay(ProgressView())
                 }
                 
-                if item.type == .video && !isHovering {
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: size * 0.2))
-                        .foregroundColor(.white.opacity(0.8))
-                        .shadow(radius: 2)
+                if item.type == .video && isHovering {
+                    NativeHoverVideoPlayer(url: item.url)
+                        .frame(width: size, height: size)
+                        .cornerRadius(8)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if model.isImportMode {
+                    Toggle("", isOn: Binding(
+                        get: { model.selectedImportURIs.contains(item.url) },
+                        set: { isSelected in
+                            if isSelected {
+                                model.selectedImportURIs.insert(item.url)
+                            } else {
+                                model.selectedImportURIs.remove(item.url)
+                            }
+                        }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .padding(4)
                 }
             }
             Text(item.name)
@@ -104,6 +143,102 @@ struct MediaCell: View {
         } catch {
             await MainActor.run {
                 self.isFailed = true
+            }
+        }
+    }
+}
+
+struct DayHeader: View {
+    @ObservedObject var model: GalleryModel
+    let date: Date
+    let items: [MediaItem]
+
+    private var isAllSelected: Bool {
+        items.allSatisfy { model.selectedImportURIs.contains($0.url) }
+    }
+
+    var body: some View {
+        HStack {
+            Text(date, style: .date)
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            Text("\(items.count) items")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            Spacer()
+            
+            if model.isImportMode {
+                Button(isAllSelected ? "Deselect Day" : "Select Day") {
+                    if isAllSelected {
+                        items.forEach { model.selectedImportURIs.remove($0.url) }
+                    } else {
+                        items.forEach { model.selectedImportURIs.insert($0.url) }
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal)
+        .background(.ultraThinMaterial)
+    }
+}
+
+struct ImportBar: View {
+    @ObservedObject var model: GalleryModel
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Importing \(model.selectedImportURIs.count) of \(model.importItems.count) items")
+                        .font(.headline)
+                    Text(model.importSourceURL?.path ?? "")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                TextField("Folder Description (optional)", text: $model.importDescription)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+                    .disabled(model.isImporting)
+                
+                Toggle("Delete from Source", isOn: $model.deleteSourceAfterImport)
+                    .toggleStyle(.checkbox)
+                    .foregroundColor(.red)
+                    .disabled(model.isImporting)
+                
+                Button("Cancel") {
+                    model.cancelImport()
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isImporting)
+                
+                Button(action: { model.performImport() }) {
+                    if model.isImporting {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(.horizontal, 4)
+                    } else {
+                        Text("Import Selected")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.selectedImportURIs.isEmpty || model.isImporting)
+            }
+            .padding()
+            .background(.ultraThinMaterial)
+            
+            if model.isImporting {
+                ProgressView(value: model.importProgress)
+                    .progressViewStyle(.linear)
             }
         }
     }
