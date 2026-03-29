@@ -35,6 +35,12 @@ struct ContentView: View {
                 GalleryView(model: model)
             }
         }
+        .onAppear {
+            DispatchQueue.main.async {
+                NSApp.mainWindow?.titleVisibility = .hidden
+                NSApp.mainWindow?.title = ""
+            }
+        }
         .background {
             // Hosts the lightbox in a borderless NSPanel child window so it covers
             // the full window including the macOS toolbar/titlebar.
@@ -203,15 +209,5 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button(action: {
-                    // Toggles Sidebar
-                    NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
-                }) {
-                    Image(systemName: "sidebar.left")
-                }
-            }
-        }
     }
 }
