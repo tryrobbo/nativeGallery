@@ -200,7 +200,7 @@ struct LightBoxView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
-        .onChange(of: item) { newValue in
+        .onChange(of: item) { _, newValue in
             player?.pause()
             if newValue.type == .video {
                 let p = AVPlayer(url: newValue.url)
