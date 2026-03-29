@@ -169,6 +169,7 @@ struct RecursiveFolderView: View {
 
 struct SidebarView: View {
     @ObservedObject var model: GalleryModel
+    @AppStorage("nativeThumbSize") private var thumbSize: Double = 200
 
     var body: some View {
         List {
@@ -209,5 +210,21 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 8) {
+                Divider()
+                HStack {
+                    Text("\(model.filteredItems.count) items")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                Slider(value: $thumbSize, in: 100...500)
+                    .labelsHidden()
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 10)
+            .background(Color(NSColor.windowBackgroundColor))
+        }
     }
 }

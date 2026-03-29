@@ -5,40 +5,20 @@ import AVKit
 struct GalleryView: View {
     @ObservedObject var model: GalleryModel
     @AppStorage("nativeThumbSize") private var thumbSize: Double = 200
-    
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Header Bar
-            HStack {
-                Text("\(model.filteredItems.count) items found")
-                    .foregroundColor(.secondary)
-                    .font(.subheadline)
-                Spacer()
-                Text("Size:")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Slider(value: $thumbSize, in: 100...500)
-                    .frame(width: 150)
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-            .background(Color(NSColor.controlBackgroundColor))
-            
-            Divider()
-            
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: thumbSize))], spacing: 16) {
-                    ForEach(model.filteredItems) { item in
-                        MediaCell(item: item, size: thumbSize)
-                            .onTapGesture {
-                                withAnimation {
-                                    model.selectedItem = item
-                                }
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: thumbSize))], spacing: 16) {
+                ForEach(model.filteredItems) { item in
+                    MediaCell(item: item, size: thumbSize)
+                        .onTapGesture {
+                            withAnimation {
+                                model.selectedItem = item
                             }
-                    }
+                        }
                 }
-                .padding()
             }
+            .padding()
         }
     }
 }
