@@ -23,27 +23,39 @@ struct GalleryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: thumbSize))],
-                spacing: 16,
-                pinnedViews: [.sectionHeaders]
-            ) {
-                ForEach(groupedItems) { group in
-                    Section(header: DayHeader(model: model, date: group.id, items: group.items)) {
-                        ForEach(group.items) { item in
-                            MediaCell(item: item, size: thumbSize, model: model)
-                                .onTapGesture {
-                                    withAnimation {
-                                        model.selectedItem = item
+        GeometryReader { geometry in
+            let availableWidth = geometry.size.width
+            let gap: CGFloat = 16
+            let colSize = CGFloat(thumbSize)
+            
+            // Calculate how many fixed-size columns + gaps fit
+            let numCols = max(1, Int((availableWidth - gap) / (colSize + gap)))
+            let gridWidth = CGFloat(numCols) * colSize + CGFloat(numCols - 1) * gap
+            let sidePadding = (availableWidth - gridWidth) / 2
+            
+            ScrollView {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.fixed(colSize), spacing: gap), count: numCols),
+                    spacing: gap,
+                    pinnedViews: [.sectionHeaders]
+                ) {
+                    ForEach(groupedItems) { group in
+                        Section(header: DayHeader(model: model, date: group.id, items: group.items)) {
+                            ForEach(group.items) { item in
+                                MediaCell(item: item, size: thumbSize, model: model)
+                                    .onTapGesture {
+                                        withAnimation {
+                                            model.selectedItem = item
+                                        }
                                     }
-                                }
+                            }
                         }
                     }
                 }
+                .padding(.leading, sidePadding)
+                .padding(.trailing, sidePadding)
+                .padding(.bottom, model.isImportMode ? 80 : 20)
             }
-            .padding(.horizontal)
-            .padding(.bottom, model.isImportMode ? 80 : 20)
         }
         .safeAreaInset(edge: .bottom) {
             if model.isImportMode {
@@ -73,7 +85,7 @@ struct MediaCell: View {
     @State private var isHovering = false
     
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             ZStack {
                 if let thumb = thumbnail {
                     Image(nsImage: thumb)
@@ -118,11 +130,6 @@ struct MediaCell: View {
                     .padding(4)
                 }
             }
-            Text(item.name)
-                .font(.caption)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(width: size)
         }
         .onHover { hovering in
             self.isHovering = hovering
