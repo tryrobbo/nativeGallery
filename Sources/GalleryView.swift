@@ -126,7 +126,7 @@ struct MediaCell: View {
         .onHover { hovering in
             self.isHovering = hovering
         }
-        .task(id: item.url) {
+        .task(id: "\(item.url)-\(Int(size / 50))") {
             await generateThumbnail()
         }
     }
