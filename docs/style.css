@@ -120,6 +120,13 @@ header {
     background-color: rgba(255, 255, 255, 0.1);
 }
 
+.setup-note {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: -20px;
+    margin-bottom: 60px;
+}
+
 /* Hero Image Mockup */
 .mockup-container {
     perspective: 1000px;
