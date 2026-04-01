@@ -134,7 +134,9 @@ struct MediaCell: View {
         .onHover { hovering in
             self.isHovering = hovering
         }
-        .task(id: "\(item.url)-\(Int(size / 50))") {
+        .task(id: "\(item.url)-\(Int(size / 50))", priority: .userInitiated) {
+            // Scroll debouncing: don't start until we stay for 0.1s
+            try? await Task.sleep(nanoseconds: 100_000_000)
             await generateThumbnail()
         }
     }
