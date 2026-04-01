@@ -1,6 +1,7 @@
 import SwiftUI
 import QuickLookThumbnailing
 import AVKit
+import ImageIO
 
 struct MediaGroup: Identifiable {
     let id: Date
@@ -379,9 +380,27 @@ struct LightBoxView: View {
             guard item.type == .photo else { return }
             lightboxImage = nil
             let url = item.url
-            lightboxImage = await Task.detached(priority: .userInitiated) {
-                NSImage(contentsOf: url)
+            
+            // Use CGImageSource for high-quality, memory-efficient loading
+            let result = await Task.detached(priority: .userInitiated) { () -> NSImage? in
+                let options: [CFString: Any] = [
+                    kCGImageSourceShouldCache: true,
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 4096 // High-res target
+                ]
+                
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                      let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                    return NSImage(contentsOf: url) // Fallback
+                }
+                
+                return NSImage(cgImage: cgImage, size: .zero)
             }.value
+
+            await MainActor.run {
+                self.lightboxImage = result
+            }
         }
         .onAppear {
             if item.type == .video {
@@ -410,10 +429,12 @@ struct NativeVideoPlayer: NSViewRepresentable {
         let view = AVPlayerView()
         view.player = player
         view.controlsStyle = .floating
+        view.videoGravity = .resizeAspect // Ensure perfect aspect ratio rendering
         return view
     }
     
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         nsView.player = player
+        nsView.videoGravity = .resizeAspect
     }
 }
