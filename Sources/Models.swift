@@ -15,6 +15,14 @@ struct FolderNode: Identifiable, Hashable {
     var children: [FolderNode]?
 }
 
+struct MetadataEntry: Codable {
+    var albums: [String]
+}
+
+struct FolderMetadata: Codable {
+    var files: [String: MetadataEntry]
+}
+
 struct MediaItem: Identifiable, Hashable {
     let id = UUID()
     let url: URL
@@ -60,6 +68,10 @@ class GalleryModel: ObservableObject {
     @Published var selectedFolderID: String? = nil
     @Published var folders: [FolderNode] = []
     @Published var selectedItem: MediaItem? = nil
+    
+    @Published var albums: [String: [MediaItem]] = [:]
+    @Published var selectedAlbum: String? = nil
+    @Published var isPlayingSlideshow = false
 
     @Published var activePlayer: AVPlayer? = nil
     @Published var expandedFolders: [String: Bool] = [:]
@@ -83,9 +95,18 @@ class GalleryModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     init() {
-        Publishers.CombineLatest4($mediaItems, $currentFilter, $searchQuery, $selectedFolderID)
-            .map { items, filter, query, folderID -> [MediaItem] in
+        Publishers.CombineLatest(
+            Publishers.CombineLatest4($mediaItems, $currentFilter, $searchQuery, $selectedFolderID),
+            $selectedAlbum
+        )
+            .map { core, albumName -> [MediaItem] in
+                let (items, filter, query, folderID) = core
                 var result = items
+                
+                if let album = albumName {
+                    let albumURLs = Set((self.albums[album] ?? []).map { $0.url })
+                    result = result.filter { albumURLs.contains($0.url) }
+                }
                 if filter == .photo {
                     result = result.filter { $0.type == .photo }
                 } else if filter == .video {
@@ -125,6 +146,7 @@ class GalleryModel: ObservableObject {
         panel.prompt = "Select Media Folder"
         if panel.runModal() == .OK, let url = panel.url {
             self.rootURL = url
+            self.selectedAlbum = nil
             UserDefaults.standard.set(url.path, forKey: "lastRootPath")
             startWatching(url: url)
             scan(url: url, initialLoad: true)
@@ -192,16 +214,34 @@ class GalleryModel: ObservableObject {
 
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
-            guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
+            guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: []) else {
                 DispatchQueue.main.async { self.isScanning = false }
                 return
             }
 
             var newItems = [MediaItem]()
+            var tempAlbums = [String: [URL]]()
+            
             while let fileURL = enumerator.nextObject() as? URL {
                 let ext = fileURL.pathExtension.lowercased()
+                
+                // Process media files
                 if ["jpg", "jpeg", "png", "heic", "gif", "mp4", "mov", "m4v"].contains(ext) {
                     newItems.append(MediaItem(url: fileURL))
+                }
+                
+                // Process metadata files
+                if fileURL.lastPathComponent == ".ng_metadata.json" {
+                    if let data = try? Data(contentsOf: fileURL),
+                       let meta = try? JSONDecoder().decode(FolderMetadata.self, from: data) {
+                        let parent = fileURL.deletingLastPathComponent()
+                        for (filename, entry) in meta.files {
+                            let itemURL = parent.appendingPathComponent(filename)
+                            for albumName in entry.albums {
+                                tempAlbums[albumName, default: []].append(itemURL)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -216,6 +256,13 @@ class GalleryModel: ObservableObject {
                 }
 
                 self.mediaItems = newItems
+                
+                // Aggregate albums
+                var finalAlbums = [String: [MediaItem]]()
+                for (name, urls) in tempAlbums {
+                    finalAlbums[name] = newItems.filter { urls.contains($0.url) }
+                }
+                self.albums = finalAlbums
 
                 let allDirs = Set(newItems.map { $0.url.deletingLastPathComponent() })
                 let newFolders = self.buildFolderTree(from: allDirs, root: url)
@@ -312,6 +359,75 @@ class GalleryModel: ObservableObject {
         }
 
         selectedItem = items[newIndex]
+    }
+
+    // MARK: - Albums & Slideshow
+
+    func addToAlbum(item: MediaItem, albumName: String) {
+        let parentDir = item.url.deletingLastPathComponent()
+        let metaURL = parentDir.appendingPathComponent(".ng_metadata.json")
+        
+        var meta = (try? JSONDecoder().decode(FolderMetadata.self, from: Data(contentsOf: metaURL))) ?? FolderMetadata(files: [:])
+        
+        var entry = meta.files[item.url.lastPathComponent, default: MetadataEntry(albums: [])]
+        if !entry.albums.contains(albumName) {
+            entry.albums.append(albumName)
+            meta.files[item.url.lastPathComponent] = entry
+            
+            if let data = try? JSONEncoder().encode(meta) {
+                try? data.write(to: metaURL)
+                // Refresh local state for reactive UI
+                var currentItems = self.albums[albumName, default: []]
+                currentItems.append(item)
+                self.albums[albumName] = currentItems
+            }
+        }
+    }
+
+    func removeFromAlbum(item: MediaItem, albumName: String) {
+        let parentDir = item.url.deletingLastPathComponent()
+        let metaURL = parentDir.appendingPathComponent(".ng_metadata.json")
+        
+        guard var meta = try? JSONDecoder().decode(FolderMetadata.self, from: Data(contentsOf: metaURL)),
+              var entry = meta.files[item.url.lastPathComponent] else { return }
+              
+        entry.albums.removeAll { $0 == albumName }
+        if entry.albums.isEmpty {
+            meta.files.removeValue(forKey: item.url.lastPathComponent)
+        } else {
+            meta.files[item.url.lastPathComponent] = entry
+        }
+        
+        if let data = try? JSONEncoder().encode(meta) {
+            try? data.write(to: metaURL)
+            self.albums[albumName]?.removeAll { $0.url == item.url }
+        }
+    }
+
+    private var slideshowTimer: AnyCancellable?
+
+    func toggleSlideshow() {
+        if isPlayingSlideshow {
+            stopSlideshow()
+        } else {
+            startSlideshow()
+        }
+    }
+
+    func startSlideshow() {
+        guard !isPlayingSlideshow else { return }
+        isPlayingSlideshow = true
+        slideshowTimer = Timer.publish(every: 3.0, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.navigate(offset: 1)
+            }
+    }
+
+    func stopSlideshow() {
+        isPlayingSlideshow = false
+        slideshowTimer?.cancel()
+        slideshowTimer = nil
     }
 
     // MARK: - Import Mode

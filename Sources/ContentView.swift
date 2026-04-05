@@ -166,7 +166,10 @@ struct RecursiveFolderView: View {
 
     @ViewBuilder
     private func folderLabel(for folder: FolderNode) -> some View {
-        Button(action: { model.selectedFolderID = folder.id }) {
+        Button(action: { 
+            model.selectedFolderID = folder.id
+            model.selectedAlbum = nil
+        }) {
             Label(folder.name, systemImage: "folder")
         }
         .buttonStyle(.plain)
@@ -203,13 +206,32 @@ struct SidebarView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
+            if !model.albums.isEmpty {
+                Section(header: Text("Albums").font(.caption).foregroundColor(.secondary)) {
+                    ForEach(model.albums.keys.sorted(), id: \.self) { album in
+                        Button(action: {
+                            model.selectedAlbum = album
+                            model.selectedFolderID = nil
+                        }) {
+                            Label(album, systemImage: "rectangle.stack")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(model.selectedAlbum == album ? .accentColor : .primary)
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+
             if !model.folders.isEmpty {
                 Section(header: Text("Folders").font(.caption).foregroundColor(.secondary)) {
-                    Button(action: { model.selectedFolderID = nil }) {
+                    Button(action: { 
+                        model.selectedFolderID = nil 
+                        model.selectedAlbum = nil
+                    }) {
                         Label("All Media", systemImage: "photo.on.rectangle")
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(model.selectedFolderID == nil ? .accentColor : .primary)
+                    .foregroundColor(model.selectedFolderID == nil && model.selectedAlbum == nil ? .accentColor : .primary)
                     .padding(.vertical, 2)
 
                     RecursiveFolderView(folders: model.folders, model: model)

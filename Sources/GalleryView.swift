@@ -43,6 +43,37 @@ struct GalleryView: View {
                         Section(header: DayHeader(model: model, date: group.id, items: group.items)) {
                             ForEach(group.items) { item in
                                 MediaCell(item: item, size: thumbSize, model: model)
+                                    .contextMenu {
+                                        Menu("Add to Album") {
+                                            Button("New Album...") {
+                                                let alert = NSAlert()
+                                                alert.messageText = "New Album Name"
+                                                alert.addButton(withTitle: "OK")
+                                                alert.addButton(withTitle: "Cancel")
+                                                let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+                                                alert.accessoryView = input
+                                                if alert.runModal() == .alertFirstButtonReturn {
+                                                    model.addToAlbum(item: item, albumName: input.stringValue)
+                                                }
+                                            }
+                                            
+                                            if !model.albums.isEmpty {
+                                                Divider()
+                                                ForEach(model.albums.keys.sorted(), id: \.self) { name in
+                                                    Button(name) { model.addToAlbum(item: item, albumName: name) }
+                                                }
+                                            }
+                                        }
+                                        
+                                        let itemAlbums = model.albums.filter { $0.value.contains(where: { $0.url == item.url }) }.map { $0.key }
+                                        if !itemAlbums.isEmpty {
+                                            Menu("Remove from Album") {
+                                                ForEach(itemAlbums, id: \.self) { name in
+                                                    Button(name) { model.removeFromAlbum(item: item, albumName: name) }
+                                                }
+                                            }
+                                        }
+                                    }
                                     .onTapGesture {
                                         withAnimation {
                                             model.selectedItem = item
@@ -357,6 +388,16 @@ struct LightBoxView: View {
             // Controls Layer
             VStack {
                 HStack {
+                    Button(action: { model.toggleSlideshow() }) {
+                        Image(systemName: model.isPlayingSlideshow ? "pause.fill" : "play.fill")
+                            .font(.title2)
+                            .padding(8)
+                            .background(Color.black.opacity(0.5))
+                            .clipShape(Circle())
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(.plain)
+                    
                     Button(action: { toggleMacFullscreen() }) {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
                             .font(.title2)
