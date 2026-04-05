@@ -74,6 +74,8 @@ class GalleryModel: ObservableObject {
     @Published var isImporting = false
     @Published var importProgress: Double = 0
     @Published var deleteSourceAfterImport = false
+    @Published var importDestinationURL: URL? = nil
+    @Published var recentFolders: [URL] = []
 
     private var eventStream: FSEventStreamRef?
     private var scanGeneration = 0
@@ -325,7 +327,22 @@ class GalleryModel: ObservableObject {
             self.isImportMode = true
             self.selectedImportURIs = []
             self.importDescription = ""
+            self.importDestinationURL = nil // Reset selection
+            updateRecentFolders()
             scanImportSource(url: url)
+        }
+    }
+
+    private func updateRecentFolders() {
+        guard let root = rootURL else { return }
+        let fm = FileManager.default
+        do {
+            let contents = try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+            let dirs = contents.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            // Sort alphabetically descending (latest yyyy-mm first)
+            self.recentFolders = dirs.sorted { $0.lastPathComponent > $1.lastPathComponent }
+        } catch {
+            print("Error listing directories: \(error)")
         }
     }
 
@@ -357,17 +374,22 @@ class GalleryModel: ObservableObject {
 
     func performImport() {
         guard let destRoot = rootURL, !selectedImportURIs.isEmpty else { return }
-        
-        // 1. Calculate date prefix from earliest selected item
         let selectedItems = importItems.filter { selectedImportURIs.contains($0.url) }
-        guard let earliestDate = selectedItems.map({ $0.date }).min() else { return }
         
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM"
-        let datePrefix = df.string(from: earliestDate)
-        
-        let folderName = importDescription.isEmpty ? datePrefix : "\(datePrefix) \(importDescription)"
-        let targetDir = destRoot.appendingPathComponent(folderName)
+        let targetDir: URL
+        if let explicitDest = importDestinationURL {
+            targetDir = explicitDest
+        } else {
+            // Calculate date prefix from earliest selected item
+            guard let earliestDate = selectedItems.map({ $0.date }).min() else { return }
+            
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM"
+            let datePrefix = df.string(from: earliestDate)
+            
+            let folderName = importDescription.isEmpty ? datePrefix : "\(datePrefix) \(importDescription)"
+            targetDir = destRoot.appendingPathComponent(folderName)
+        }
         
         self.isImporting = true
         self.importProgress = 0

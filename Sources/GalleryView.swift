@@ -215,10 +215,25 @@ struct ImportBar: View {
                 
                 Spacer()
                 
-                TextField("Folder Description (optional)", text: $model.importDescription)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 200)
+                if !model.recentFolders.isEmpty {
+                    Picker("To:", selection: $model.importDestinationURL) {
+                        Text("New Folder (Auto)").tag(Optional<URL>.none)
+                        Divider()
+                        ForEach(model.recentFolders, id: \.self) { url in
+                            Text(url.lastPathComponent).tag(Optional<URL>.some(url))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 250)
                     .disabled(model.isImporting)
+                }
+
+                if model.importDestinationURL == nil {
+                    TextField("Folder Description", text: $model.importDescription)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                        .disabled(model.isImporting)
+                }
                 
                 Toggle("Delete from Source", isOn: $model.deleteSourceAfterImport)
                     .toggleStyle(.checkbox)
